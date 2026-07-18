@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smart Money Consensus Trader — Admin</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #0b0e14; color: #d7dce5; }
+      header { padding: 16px 24px; background: #11151f; border-bottom: 1px solid #1f2634; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+      h1 { font-size: 16px; margin: 0; font-weight: 600; }
+      .pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .pill.paper { background: #1e3a5f; color: #9ecbff; }
+      .pill.live { background: #5f1e1e; color: #ff9e9e; }
+      .pill.approval { background: #5f4a1e; color: #ffd89e; }
+      .pill.on { background: #5f1e1e; color: #ff9e9e; }
+      .pill.off { background: #1e3f2a; color: #9effb0; }
+      main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+      section { background: #11151f; border: 1px solid #1f2634; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+      section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #7f8ba3; margin: 0 0 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #1a212e; white-space: nowrap; }
+      th { color: #7f8ba3; font-weight: 500; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+      .stat { background: #0e121b; border: 1px solid #1f2634; border-radius: 8px; padding: 12px; }
+      .stat .k { color: #7f8ba3; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+      .stat .v { font-size: 20px; font-weight: 600; margin-top: 4px; }
+      button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3446; background: #1a2130; color: #d7dce5; cursor: pointer; }
+      button:hover { background: #222c3e; }
+      button.danger { border-color: #5f1e1e; color: #ff9e9e; }
+      .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+      .scroll { overflow-x: auto; }
+      .reasons { font-size: 12px; color: #9aa5bd; white-space: normal; max-width: 480px; }
+      .pass { color: #7fd99a; }
+      .fail { color: #ff9e9e; }
+      input { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid #2a3446; background: #0e121b; color: #d7dce5; width: 320px; }
+      .muted { color: #7f8ba3; }
+      .accepted { color: #7fd99a; font-weight: 600; }
+      .rejected { color: #ff9e9e; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Smart Money Consensus Trader</h1>
+      <span id="modePill" class="pill paper">—</span>
+      <span id="killPill" class="pill off">kill: off</span>
+      <span id="pausePill" class="pill off">paused: no</span>
+      <span class="muted" id="updated"></span>
+    </header>
+    <main>
+      <section id="tokenGate">
+        <h2>Admin authentication</h2>
+        <p class="muted">Paste your <code>ADMIN_TOKEN</code>. It is kept only in this tab's memory and sent as a bearer token.</p>
+        <div class="controls">
+          <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off" />
+          <button id="connect">Connect</button>
+        </div>
+        <p id="authErr" class="fail"></p>
+      </section>
+
+      <div id="dashboard" style="display:none">
+        <section>
+          <h2>Controls</h2>
+          <div class="controls">
+            <button id="btnPause">Pause New Trades</button>
+            <button id="btnResume">Resume</button>
+            <button id="btnCancel" class="danger">Cancel Open Orders</button>
+            <button id="btnClose" class="danger">Close All Positions</button>
+            <button id="btnKill" class="danger">Emergency Kill Switch</button>
+            <button id="btnKillReset">Reset Kill Switch</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Account &amp; risk</h2>
+          <div class="grid" id="stats"></div>
+        </section>
+
+        <section>
+          <h2>Worker health</h2>
+          <div class="scroll"><table id="healthTbl"></table></div>
+        </section>
+
+        <section>
+          <h2>Trader rankings (quality score)</h2>
+          <div class="scroll"><table id="scoresTbl"></table></div>
+        </section>
+
+        <section>
+          <h2>Positions</h2>
+          <div class="scroll"><table id="posTbl"></table></div>
+        </section>
+
+        <section>
+          <h2>Consensus signals (accept / reject reasons)</h2>
+          <div class="scroll"><table id="sigTbl"></table></div>
+        </section>
+
+        <section>
+          <h2>Recent orders</h2>
+          <div class="scroll"><table id="ordTbl"></table></div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      let TOKEN = '';
+      const $ = (id) => document.getElementById(id);
+
+      async function api(path, opts = {}) {
+        const res = await fetch(path, {
+          ...opts,
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN, ...(opts.headers || {}) },
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+        return res.json();
+      }
+
+      function fmt(n, d = 2) { return n == null ? '—' : Number(n).toFixed(d); }
+
+      function table(el, rows, cols) {
+        if (!rows || rows.length === 0) { el.innerHTML = '<tr><td class="muted">none</td></tr>'; return; }
+        const head = '<tr>' + cols.map((c) => '<th>' + c.h + '</th>').join('') + '</tr>';
+        const body = rows.map((r) => '<tr>' + cols.map((c) => '<td>' + c.f(r) + '</td>').join('') + '</tr>').join('');
+        el.innerHTML = head + body;
+      }
+
+      function reasonsHtml(reasons) {
+        if (!reasons) return '';
+        const arr = Array.isArray(reasons) ? reasons : [];
+        return '<div class="reasons">' + arr.map((r) =>
+          '<span class="' + (String(r).startsWith('PASS') ? 'pass' : 'fail') + '">' + r + '</span>').join('<br>') + '</div>';
+      }
+
+      async function refresh() {
+        try {
+          const d = await api('/api/admin/overview');
+          $('modePill').textContent = d.mode + (d.liveExecutionEnabled ? ' (LIVE)' : '');
+          $('modePill').className = 'pill ' + d.mode;
+          $('killPill').textContent = 'kill: ' + (d.control.killSwitchActive ? 'ON' : 'off');
+          $('killPill').className = 'pill ' + (d.control.killSwitchActive ? 'on' : 'off');
+          $('pausePill').textContent = 'paused: ' + (d.control.tradingPaused ? 'yes' : 'no');
+          $('pausePill').className = 'pill ' + (d.control.tradingPaused ? 'on' : 'off');
+          $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+          const bal = Array.isArray(d.balances) ? (d.balances[0] || {}) : {};
+          $('stats').innerHTML = [
+            ['Cash balance', '$' + fmt(bal.currentBalance)],
+            ['Buying power', '$' + fmt(bal.buyingPower)],
+            ['Total exposure', '$' + fmt(d.exposureUsd)],
+            ['Realized PnL (today)', '$' + fmt(d.pnl.realizedToday)],
+            ['Unrealized PnL', '$' + fmt(d.pnl.unrealized)],
+            ['Trades today', String(d.today.tradesCount)],
+            ['Max trade', '$' + fmt(d.limits.maxTradeUsd)],
+            ['Max daily loss', '$' + fmt(d.limits.maxDailyLossUsd)],
+          ].map(([k, v]) => '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>').join('');
+
+          table($('healthTbl'), d.health, [
+            { h: 'Worker', f: (r) => r.worker_id },
+            { h: 'Lease', f: (r) => (r.lease_holder ? 'holder' : 'standby') },
+            { h: 'Last cycle', f: (r) => (r.last_cycle_at ? new Date(r.last_cycle_at).toLocaleTimeString() : '—') },
+            { h: 'Status', f: (r) => r.last_cycle_status || '—' },
+            { h: 'WS mkt', f: (r) => (r.ws_markets_connected ? '✓' : '✗') },
+            { h: 'WS priv', f: (r) => (r.ws_private_connected ? '✓' : '✗') },
+            { h: 'Error', f: (r) => r.error_state || '' },
+          ]);
+
+          table($('scoresTbl'), d.scores, [
+            { h: 'Trader', f: (r) => r.handle || r.traderId.slice(0, 10) },
+            { h: 'Score', f: (r) => r.score },
+            { h: 'Qualified', f: (r) => (r.qualified ? '✓' : '') },
+            { h: 'Components', f: (r) => '<span class="muted">' + Object.entries(r.components || {}).map(([k, v]) => k + ':' + Number(v).toFixed(2)).join(' ') + '</span>' },
+          ]);
+
+          table($('posTbl'), d.positions, [
+            { h: 'Market', f: (r) => r.usMarketSlug },
+            { h: 'Outcome', f: (r) => r.outcome || '' },
+            { h: 'Qty', f: (r) => fmt(r.netQuantity, 0) },
+            { h: 'Cost', f: (r) => '$' + fmt(r.costUsd) },
+            { h: 'Value', f: (r) => '$' + fmt(r.cashValueUsd) },
+            { h: 'Realized', f: (r) => '$' + fmt(r.realizedPnlUsd) },
+          ]);
+
+          table($('sigTbl'), d.signals, [
+            { h: 'Market', f: (r) => r.us_market_slug },
+            { h: 'Outcome', f: (r) => r.outcome },
+            { h: 'Traders', f: (r) => r.aligned_traders },
+            { h: 'Score', f: (r) => fmt(r.quality_weighted_score, 0) },
+            { h: 'Decision', f: (r) => '<span class="' + r.decision + '">' + r.decision + '</span>' },
+            { h: 'Reasons', f: (r) => reasonsHtml(r.reasons) },
+          ]);
+
+          table($('ordTbl'), d.orders, [
+            { h: 'Time', f: (r) => new Date(r.created_at).toLocaleString() },
+            { h: 'Market', f: (r) => r.us_market_slug },
+            { h: 'Side', f: (r) => r.intent },
+            { h: 'Price', f: (r) => fmt(r.price) },
+            { h: 'Qty', f: (r) => fmt(r.quantity, 0) },
+            { h: 'Notional', f: (r) => '$' + fmt(r.notional_usd) },
+            { h: 'Mode', f: (r) => r.mode },
+            { h: 'State', f: (r) => r.lifecycle },
+          ]);
+        } catch (e) {
+          $('authErr').textContent = 'Error: ' + e.message;
+        }
+      }
+
+      async function action(path, confirmText) {
+        if (confirmText && !confirm('Type-confirm in the dialog: this will "' + confirmText + '". Proceed?')) return;
+        try {
+          await api(path, { method: 'POST', body: JSON.stringify(confirmText ? { confirm: confirmText } : {}) });
+          await refresh();
+        } catch (e) { alert('Failed: ' + e.message); }
+      }
+
+      $('connect').onclick = async () => {
+        TOKEN = $('token').value.trim();
+        try {
+          await api('/api/admin/overview');
+          $('tokenGate').style.display = 'none';
+          $('dashboard').style.display = 'block';
+          refresh();
+          setInterval(refresh, 15000);
+        } catch (e) { $('authErr').textContent = 'Auth failed: ' + e.message; }
+      };
+
+      $('btnPause').onclick = () => action('/api/admin/pause');
+      $('btnResume').onclick = async () => {
+        try { await api('/api/admin/pause', { method: 'POST', body: JSON.stringify({ paused: false }) }); refresh(); }
+        catch (e) { alert(e.message); }
+      };
+      $('btnCancel').onclick = () => action('/api/admin/cancel-orders', 'CANCEL ALL ORDERS');
+      $('btnClose').onclick = () => action('/api/admin/close-positions', 'CLOSE ALL POSITIONS');
+      $('btnKill').onclick = () => action('/api/admin/kill-switch', 'ACTIVATE KILL SWITCH');
+      $('btnKillReset').onclick = () => action('/api/admin/kill-switch/reset', 'RESET KILL SWITCH');
+    </script>
+  </body>
+</html>
