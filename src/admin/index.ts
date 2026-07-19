@@ -174,15 +174,19 @@ app.post('/api/admin/close-positions', async (req: Request, res: Response) => {
   }
 });
 
-async function start(): Promise<void> {
+export async function startAdmin(runMigrate = true): Promise<void> {
   const cfg = loadConfig();
-  await migrate();
+  if (runMigrate) await migrate();
   app.listen(cfg.port, () => {
     log.info('admin dashboard listening', { port: cfg.port });
   });
 }
 
-start().catch((err) => {
-  log.error('admin failed to start', { error: err instanceof Error ? err.message : String(err) });
-  process.exit(1);
-});
+// Run standalone only when invoked directly (not when imported by the combined
+// entrypoint). This keeps the dedicated admin service working unchanged.
+if (require.main === module) {
+  startAdmin().catch((err) => {
+    log.error('admin failed to start', { error: err instanceof Error ? err.message : String(err) });
+    process.exit(1);
+  });
+}
