@@ -119,7 +119,7 @@ async function tick(): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
+async function main(runMigrate = true): Promise<void> {
   const cfg = loadConfig();
   log.info('starting consensus trader worker', {
     workerId,
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   });
 
   // Fail closed: schema, then authentication, before anything else.
-  await migrate();
+  if (runMigrate) await migrate();
   await validateAuthentication();
   await audit('worker', 'worker_started', {
     workerId,
@@ -186,13 +186,35 @@ process.on('unhandledRejection', (reason) => {
   log.error('unhandled rejection', { reason: String(reason) });
 });
 
-main().catch(async (err) => {
-  log.error('fatal startup error (failing closed)', {
-    error: err instanceof Error ? err.message : String(err),
-  });
-  await audit('system', 'worker_fatal', {
-    error: err instanceof Error ? err.message : String(err),
-  }).catch(() => {});
-  await closePool().catch(() => {});
-  process.exit(1);
-});
+/**
+ * Start the worker. When `exitOnFatal` is true (the dedicated worker service),
+ * a fatal startup error kills the process — fail-closed. When false (the
+ * combined single-service entrypoint), a fatal error is logged but the process
+ * keeps running so the admin dashboard stays available; the worker will retry
+ * on its next tick / restart.
+ */
+export async function startWorker(
+  opts: { runMigrate?: boolean; exitOnFatal?: boolean } = {},
+): Promise<void> {
+  const { runMigrate = true, exitOnFatal = true } = opts;
+  try {
+    await main(runMigrate);
+  } catch (err) {
+    log.error('fatal startup error (failing closed)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await audit('system', 'worker_fatal', {
+      error: err instanceof Error ? err.message : String(err),
+    }).catch(() => {});
+    if (exitOnFatal) {
+      await closePool().catch(() => {});
+      process.exit(1);
+    }
+  }
+}
+
+// Run standalone only when invoked directly (not when imported by the combined
+// entrypoint). This keeps the dedicated worker service working unchanged.
+if (require.main === module) {
+  void startWorker({ exitOnFatal: true });
+}

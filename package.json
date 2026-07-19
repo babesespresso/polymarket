@@ -15,9 +15,11 @@
     "worker:dev": "tsx watch src/worker/index.ts",
     "admin": "node dist/admin/index.js",
     "admin:dev": "tsx watch src/admin/index.ts",
+    "combined": "node dist/index.js",
+    "combined:dev": "tsx watch src/index.ts",
     "migrate": "node dist/db/migrate.js",
     "migrate:dev": "tsx src/db/migrate.ts",
-    "start": "npm run migrate && npm run worker",
+    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

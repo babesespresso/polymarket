@@ -100,8 +100,45 @@ it, paste your `ADMIN_TOKEN`, and it polls `/api/admin/overview` every 15s.
 
 ## Deploying to Railway
 
-This repo is set up for two Railway **services** sharing one Postgres plugin and
-the same environment variables:
+### Easiest: one combined service (recommended for getting started)
+
+The simplest deploy is a **single service** that runs the worker and serves the
+dashboard in one process (`src/index.ts`, the default `npm start`):
+
+1. **New Project → Deploy from GitHub repo → `babesespresso/polymarket`** (the
+   `main` branch). This creates one service.
+2. **+ New → Database → Add PostgreSQL.**
+3. On the service: **Variables → Raw Editor**, paste the block below, then add a
+   `DATABASE_URL` reference (**+ New Variable → Add Reference → Postgres →
+   DATABASE_URL**):
+   ```
+   POLYMARKET_KEY_ID=<your-key-id>
+   POLYMARKET_SECRET_KEY=<your-secret-key>
+   TRADING_MODE=paper
+   POLYMARKET_LIVE_TRADING=false
+   MAX_TRADE_USD=2
+   MAX_MARKET_EXPOSURE_USD=4
+   MAX_TOTAL_EXPOSURE_USD=20
+   MAX_DAILY_LOSS_USD=5
+   MAX_OPEN_POSITIONS=5
+   MAX_TRADES_PER_DAY=10
+   MIN_CASH_RESERVE_USD=20
+   MIN_CONSENSUS_TRADERS=3
+   MIN_CONSENSUS_SCORE=75
+   ADMIN_TOKEN=<long-random-string>
+   ```
+4. **Settings → Networking → Generate Domain.** Open that URL, paste your
+   `ADMIN_TOKEN`, and the dashboard loads.
+
+No custom build/start command is needed — `railway.json` sets them (`npm ci &&
+npm run build`, then `npm start`, health check `/healthz`). The dashboard comes
+up even if the Polymarket key is rejected, so you can always reach the UI; the
+worker begins trading (paper by default) once auth succeeds.
+
+### Production: two dedicated services
+
+For stronger isolation you can run the worker and dashboard as **two services**
+sharing one Postgres plugin and the same environment variables: 
 
 1. **Create the project & database**
    ```bash

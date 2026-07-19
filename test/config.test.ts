@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+// Keep this test hermetic: never let dotenv load a real .env file from disk,
+// so the fail-closed assertions depend only on process.env set here.
+vi.mock('dotenv', () => ({ config: () => ({ parsed: {} }) }));
+
 /**
  * Config must fail closed. We reset the module registry between cases so each
  * test re-evaluates loadConfig() with a fresh environment (the config module
